@@ -1,0 +1,882 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CadastrePro — Recherche cadastrale</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+:root {
+  --navy: #0f1923;
+  --navy-2: #1a2637;
+  --navy-3: #243347;
+  --accent: #3b82f6;
+  --accent-light: #60a5fa;
+  --green: #10b981;
+  --border: rgba(255,255,255,0.08);
+  --border-med: rgba(255,255,255,0.14);
+  --text: #f1f5f9;
+  --text-2: #94a3b8;
+  --text-3: #64748b;
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; font-family: 'DM Sans', sans-serif; background: var(--navy); color: var(--text); }
+
+nav {
+  height: 56px;
+  background: var(--navy);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 12px;
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 1000;
+}
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 17px;
+  letter-spacing: -0.3px;
+}
+.logo-icon {
+  width: 32px; height: 32px;
+  background: var(--accent);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+}
+.logo span { color: var(--accent-light); }
+
+.hamburger {
+  margin-left: auto;
+  font-size: 28px;
+  cursor: pointer;
+  padding: 8px;
+  color: var(--text-2);
+  display: none;
+}
+
+/* APP */
+.app {
+  display: flex;
+  height: calc(100vh - 56px);
+  margin-top: 56px;
+  overflow: hidden;
+}
+
+/* SIDEBAR */
+.sidebar {
+  width: 340px;
+  flex-shrink: 0;
+  background: var(--navy-2);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 10;
+  transition: transform 0.3s ease;
+}
+
+@media (max-width: 900px) {
+  .hamburger { display: block; }
+  .sidebar {
+    position: fixed;
+    top: 56px;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    max-width: 380px;
+    transform: translateX(-100%);
+    box-shadow: 4px 0 20px rgba(0,0,0,0.5);
+    z-index: 100;
+  }
+  .sidebar.open { transform: translateX(0); }
+}
+
+/* MAP ZONE */
+.map-zone {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  position: relative;
+}
+#map { flex: 1; height: 100%; }
+
+/* PANEL */
+.parcel-panel {
+  width: 0;
+  flex-shrink: 0;
+  background: var(--navy-2);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.parcel-panel.open { width: 290px; }
+
+@media (max-width: 900px) {
+  .parcel-panel {
+    position: fixed;
+    top: 56px;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    box-shadow: -4px 0 20px rgba(0,0,0,0.5);
+    transform: translateX(100%);
+    transition: transform 0.3s ease;
+  }
+  .parcel-panel.open {
+    transform: translateX(0);
+    width: 100%;
+  }
+}
+
+/* Styles communs */
+.sidebar-top { padding: 16px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--navy);
+  border-radius: 8px;
+  padding: 4px;
+  margin-bottom: 16px;
+}
+.tab {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: none;
+  background: none;
+  color: var(--text-3);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.tab.active {
+  background: var(--navy-2);
+  color: var(--text);
+}
+
+.form-group { margin-bottom: 14px; }
+.form-label {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-bottom: 6px;
+  display: block;
+}
+.form-input {
+  width: 100%;
+  background: var(--navy-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  font-size: 14px;
+  color: var(--text);
+  outline: none;
+}
+.form-input:focus { border-color: var(--accent); }
+
+.btn-search {
+  width: 100%;
+  padding: 12px;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius);
+  color: #fff;
+  font-size: 14.5px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 8px;
+}
+.btn-search:hover { background: #2563eb; }
+
+.results-section { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+.results-header {
+  padding: 12px 16px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.results-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 10px;
+}
+.result-item {
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-bottom: 4px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 1px solid transparent;
+}
+.result-item:hover { background: var(--navy-3); }
+.result-item.selected { background: rgba(59,130,246,0.15); border-color: var(--accent); }
+
+.panel-inner {
+  width: 290px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.panel-header {
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.panel-close {
+  background: none;
+  border: none;
+  color: var(--text-3);
+  font-size: 24px;
+  cursor: pointer;
+  padding: 4px;
+}
+.panel-close:hover { color: var(--text); }
+
+.panel-body {
+  padding: 16px;
+  overflow-y: auto;
+  flex: 1;
+}
+.area-card {
+  background: rgba(16,185,129,0.12);
+  border: 1px solid rgba(16,185,129,0.2);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 12px;
+  text-align: center;
+}
+.area-m2 {
+  font-size: 32px;
+  font-weight: 600;
+  color: var(--green);
+  letter-spacing: -1.2px;
+}
+.area-unit { font-size: 13px; color: var(--text-3); margin-top: 2px; }
+
+.info-card {
+  background: var(--navy-3);
+  border-radius: var(--radius);
+  padding: 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+}
+.info-card-title {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.9px;
+  color: var(--text-3);
+  margin-bottom: 8px;
+}
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.info-row:last-child { border-bottom: none; }
+.info-key { color: var(--text-3); }
+.info-val { font-family: 'DM Mono', monospace; color: var(--text); }
+
+.map-links {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 12px 0;
+}
+.map-link-btn {
+  padding: 10px 8px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--navy-3);
+  color: var(--text-2);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-decoration: none;
+}
+.map-link-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent-light);
+  background: var(--navy-2);
+}
+
+.btn-export {
+  width: 100%;
+  padding: 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 12.5px;
+}
+.btn-export:hover {
+  border-color: var(--accent);
+  color: var(--accent-light);
+}
+
+.empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 13.5px;
+  line-height: 1.6;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.toast {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--navy-2);
+  border: 1px solid var(--border-med);
+  border-radius: var(--radius);
+  padding: 10px 18px;
+  font-size: 13px;
+  z-index: 9999;
+  opacity: 0;
+  transition: opacity 0.3s;
+  white-space: nowrap;
+}
+.toast.show { opacity: 1; }
+
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(15,25,35,0.85);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 500;
+}
+.loading-spinner {
+  width: 36px;
+  height: 36px;
+  border: 4px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.leaflet-control-zoom { border-radius: var(--radius) !important; overflow: hidden; }
+.leaflet-control-attribution { display: none; }
+.autocomplete-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--navy);
+  border: 1px solid var(--border-med);
+  border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius);
+  z-index: 9999;
+  overflow: hidden;
+  display: none;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.autocomplete-list.show { display: block; }
+.autocomplete-item {
+  padding: 9px 11px;
+  font-size: 12px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+.autocomplete-item:hover { background: var(--navy-2); }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="logo">
+    <div class="logo-icon">🛰</div>
+    Cadastre<span>Pro</span>
+  </div>
+  <div class="hamburger" id="hamburger">☰</div>
+</nav>
+
+<div class="app">
+  <!-- SIDEBAR -->
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-top">
+      <div class="tabs">
+        <button class="tab active" data-tab="adresse">Adresse</button>
+        <button class="tab" data-tab="reference">Référence</button>
+        <button class="tab" data-tab="avancee">Avancée</button>
+      </div>
+
+      <div id="tab-adresse">
+        <div class="form-group">
+          <label class="form-label">Commune ou code postal</label>
+          <div class="input-wrap" style="position:relative">
+            <input class="form-input" id="input-commune" placeholder="Ex: Bordeaux, 33000…" autocomplete="off">
+            <div class="autocomplete-list" id="commune-list"></div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Adresse (optionnel)</label>
+          <input class="form-input" id="input-adresse" placeholder="10 Rue de la Paix" onkeydown="if(event.key==='Enter') searchAdresse()">
+        </div>
+        <button class="btn-search" onclick="searchAdresse()">Rechercher</button>
+      </div>
+
+      <div id="tab-reference" style="display:none">
+        <div class="form-group">
+          <label class="form-label">Code INSEE</label>
+          <input class="form-input" id="ref-insee" placeholder="75056" maxlength="5">
+        </div>
+        <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div>
+            <label class="form-label">Section</label>
+            <input class="form-input" id="ref-section" placeholder="AB" maxlength="2">
+          </div>
+          <div>
+            <label class="form-label">Numéro</label>
+            <input class="form-input" id="ref-numero" placeholder="0042" maxlength="4">
+          </div>
+        </div>
+        <button class="btn-search" onclick="searchReference()">Rechercher</button>
+      </div>
+
+      <div id="tab-avancee" style="display:none">
+        <div class="form-group">
+          <label class="form-label">Commune ou code postal</label>
+          <div class="input-wrap" style="position:relative">
+            <input class="form-input" id="adv-commune" placeholder="Ex: Salon-de-Provence…" autocomplete="off">
+            <div class="autocomplete-list" id="commune-list-2"></div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Superficie (m²)</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input class="form-input" id="adv-min" type="number" value="0" placeholder="Min">
+            <span style="color:var(--text-3)">à</span>
+            <input class="form-input" id="adv-max" type="number" value="50000" placeholder="Max">
+          </div>
+        </div>
+        <button class="btn-search" onclick="searchAvancee()">Lancer la recherche</button>
+      </div>
+    </div>
+
+    <div class="results-section" id="results-section" style="display:none">
+      <div class="results-header">
+        <div class="results-count" id="results-count">— parcelles</div>
+        <button onclick="clearAll()" style="background:none;border:none;color:var(--text-3);font-size:12px;cursor:pointer">Effacer</button>
+      </div>
+      <div class="results-list" id="results-list"></div>
+    </div>
+
+    <div class="empty" id="empty-state">
+      <div style="font-size:48px;margin-bottom:12px;opacity:0.35">🗺</div>
+      Recherchez une commune ou une adresse pour afficher les parcelles cadastrales
+    </div>
+  </div>
+
+  <!-- MAP ZONE -->
+  <div class="map-zone">
+    <div id="map"></div>
+
+    <!-- PARCEL PANEL -->
+    <div class="parcel-panel" id="parcel-panel">
+      <div class="panel-inner">
+        <div class="panel-header">
+          <div>
+            <div class="panel-ref" id="panel-ref">—</div>
+            <div class="panel-commune" id="panel-commune">—</div>
+          </div>
+          <button class="panel-close" onclick="closePanel()">✕</button>
+        </div>
+
+        <div class="panel-body">
+          <div class="area-card">
+            <div class="area-m2" id="panel-area">—</div>
+            <div class="area-unit">m²</div>
+            <div class="area-ha" id="panel-ha"></div>
+          </div>
+
+          <div class="info-card">
+            <div class="info-card-title">Référence cadastrale</div>
+            <div class="info-row"><span class="info-key">Code INSEE</span><span class="info-val" id="pi-insee">—</span></div>
+            <div class="info-row"><span class="info-key">Section</span><span class="info-val" id="pi-section">—</span></div>
+            <div class="info-row"><span class="info-key">Numéro</span><span class="info-val" id="pi-numero">—</span></div>
+            <div class="info-row"><span class="info-key">Feuille</span><span class="info-val" id="pi-feuille">—</span></div>
+          </div>
+
+          <div class="map-links">
+            <a class="map-link-btn" id="link-gmaps" href="#" target="_blank">📍 Google Maps</a>
+            <a class="map-link-btn" id="link-osm" href="#" target="_blank">🗺 OpenStreetMap</a>
+          </div>
+
+          <button class="btn-export" onclick="exportGeoJSON()">⬇ Exporter GeoJSON</button>
+        </div>
+
+        <div class="panel-nav" style="padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;flex-direction:column;align-items:center">
+          <div id="nav-label" style="font-size:11px;color:var(--text-3)">Parcelle 1 sur 1</div>
+          <div style="display:flex;gap:8px;width:100%">
+            <button class="nav-btn" id="btn-prev" onclick="navParcel(-1)" style="flex:1">← Préc.</button>
+            <span class="nav-counter" id="nav-counter" style="font-family:'DM Mono',monospace;min-width:60px;text-align:center">1 / 1</span>
+            <button class="nav-btn" id="btn-next" onclick="navParcel(1)" style="flex:1">Suiv. →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="loading-overlay" id="loading">
+      <div class="loading-spinner"></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ==================== CONFIG & STATE ====================
+let map, parcelLayers = [], allFeatures = [], currentIndex = -1;
+const commune = { c1: {insee:'', nom:''}, c2: {insee:'', nom:''} };
+
+const toastEl = document.getElementById('toast');
+const loadingEl = document.getElementById('loading');
+
+// ==================== MAP INIT ====================
+map = L.map('map', { zoomControl: true }).setView([46.6, 1.89], 6);
+
+L.tileLayer('https://data.geopf.fr/wmts?SERVICE=WMTS&VERSION=1.0.0&REQUEST=GetTile&STYLE=normal&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&FORMAT=image/jpeg', {
+  maxZoom: 22,
+  attribution: '© IGN'
+}).addTo(map);
+
+// ==================== MOBILE MENU ====================
+const hamburger = document.getElementById('hamburger');
+const sidebar = document.getElementById('sidebar');
+
+hamburger.addEventListener('click', () => sidebar.classList.toggle('open'));
+
+// Close sidebar when clicking outside on mobile
+document.addEventListener('click', e => {
+  if (window.innerWidth > 900) return;
+  if (!e.target.closest('#sidebar') && !e.target.closest('#hamburger')) {
+    sidebar.classList.remove('open');
+  }
+});
+
+// ==================== TABS ====================
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+
+    document.querySelectorAll('#sidebar > .sidebar-top > div[id^="tab-"]').forEach(div => {
+      div.style.display = div.id === `tab-${tab.dataset.tab}` ? 'block' : 'none';
+    });
+  });
+});
+
+// ==================== SEARCH FUNCTIONS ====================
+async function searchAdresse() {
+  const adresse = document.getElementById('input-adresse').value.trim();
+  const communeInput = document.getElementById('input-commune').value.trim();
+
+  if (!adresse && !communeInput) return showToast('Entrez une commune ou une adresse', 'err');
+
+  showLoading();
+
+  try {
+    if (adresse) {
+      const q = adresse + (communeInput ? ' ' + communeInput : '');
+      const res = await fetch(`https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(q)}&limit=1`);
+      const data = await res.json();
+      if (!data.features.length) throw new Error('Adresse introuvable');
+
+      const [lon, lat] = data.features[0].geometry.coordinates;
+      const geom = JSON.stringify({type:'Point', coordinates:[lon, lat]});
+      const r2 = await fetch(`https://apicarto.ign.fr/api/cadastre/parcelle?geom=${encodeURIComponent(geom)}`);
+      const d2 = await r2.json();
+
+      hideLoading();
+      if (!d2.features?.length) return showToast('Aucune parcelle trouvée', 'err');
+
+      setResults(d2.features);
+      selectParcel(0, true);
+    } else {
+      // Recherche par commune seule
+      const insee = await getInseeFromInput('input-commune', 'c1');
+      if (!insee) throw new Error('Commune introuvable');
+
+      const res = await fetch(`https://apicarto.ign.fr/api/cadastre/parcelle?code_insee=${insee}`);
+      const data = await res.json();
+      hideLoading();
+
+      if (!data.features?.length) return showToast('Aucune parcelle trouvée', 'err');
+
+      setResults(data.features);
+      map.fitBounds(L.featureGroup(parcelLayers).getBounds(), {padding: [40,40]});
+      showToast(`${data.features.length} parcelle(s) chargée(s)`, 'ok');
+    }
+  } catch (e) {
+    hideLoading();
+    showToast(e.message || 'Erreur lors de la recherche', 'err');
+  }
+
+  if (window.innerWidth <= 900) sidebar.classList.remove('open');
+}
+
+async function searchReference() {
+  const insee = document.getElementById('ref-insee').value.trim();
+  const section = document.getElementById('ref-section').value.trim().toUpperCase();
+  const numero = document.getElementById('ref-numero').value.trim().padStart(4, '0');
+
+  if (!insee || !section || !numero) return showToast('Remplissez tous les champs', 'err');
+
+  showLoading();
+  try {
+    const res = await fetch(`https://apicarto.ign.fr/api/cadastre/parcelle?code_insee=${insee}&section=${section}&numero=${numero}`);
+    const data = await res.json();
+    hideLoading();
+
+    if (!data.features?.length) return showToast('Parcelle introuvable', 'err');
+
+    setResults(data.features);
+    selectParcel(0, true);
+  } catch (e) {
+    hideLoading();
+    showToast('Erreur de connexion', 'err');
+  }
+}
+
+async function searchAvancee() {
+  const insee = await getInseeFromInput('adv-commune', 'c2');
+  if (!insee) return showToast('Commune introuvable', 'err');
+
+  const min = parseFloat(document.getElementById('adv-min').value) || 0;
+  const max = parseFloat(document.getElementById('adv-max').value) || Infinity;
+
+  showLoading();
+  try {
+    const res = await fetch(`https://apicarto.ign.fr/api/cadastre/parcelle?code_insee=${insee}`);
+    const data = await res.json();
+    const filtered = (data.features || []).filter(f => {
+      const area = turf.area(f);
+      return area >= min && area <= max;
+    });
+
+    hideLoading();
+    if (!filtered.length) return showToast('Aucune parcelle correspondante', 'err');
+
+    setResults(filtered);
+    map.fitBounds(L.featureGroup(parcelLayers).getBounds(), {padding: [40,40]});
+    showToast(`${filtered.length} parcelle(s) trouvée(s)`, 'ok');
+  } catch (e) {
+    hideLoading();
+    showToast('Erreur de connexion', 'err');
+  }
+}
+
+// ==================== HELPER : Get INSEE ====================
+async function getInseeFromInput(inputId, slot) {
+  const input = document.getElementById(inputId).value.trim();
+  if (!input) return null;
+
+  try {
+    let url = /^\d+$/.test(input)
+      ? `https://geo.api.gouv.fr/communes?codePostal=${input}&limit=1`
+      : `https://geo.api.gouv.fr/communes?nom=${encodeURIComponent(input)}&limit=1`;
+
+    const res = await fetch(url);
+    const data = await res.json();
+    if (!data.length) return null;
+
+    commune[slot].insee = data[0].code;
+    commune[slot].nom = data[0].nom;
+    return data[0].code;
+  } catch (e) {
+    return null;
+  }
+}
+
+// ==================== RESULTS & LAYERS ====================
+function setResults(features) {
+  allFeatures = features;
+  currentIndex = -1;
+  clearLayers();
+
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('results-section').style.display = 'flex';
+  document.getElementById('results-count').innerHTML = `<strong>${features.length}</strong> parcelle${features.length > 1 ? 's' : ''}`;
+
+  const list = document.getElementById('results-list');
+  list.innerHTML = '';
+
+  features.slice(0, 80).forEach((f, i) => {
+    const p = f.properties || {};
+    const area = Math.round(turf.area(f));
+    const div = document.createElement('div');
+    div.className = 'result-item';
+    div.innerHTML = `<span style="font-family:'DM Mono'">${p.section||'—'} ${p.numero||'—'}</span><span style="color:var(--accent-light);font-family:'DM Mono'">${area.toLocaleString('fr')} m²</span>`;
+    div.onclick = () => selectParcel(i, true);
+    list.appendChild(div);
+
+    const layer = L.geoJSON(f, {
+      style: { color: '#60a5fa', weight: 1.5, fillOpacity: 0.08, fillColor: '#3b82f6' }
+    });
+    layer.on('click', () => selectParcel(i, false));
+    layer.addTo(map);
+    parcelLayers.push(layer);
+  });
+}
+
+function clearLayers() {
+  parcelLayers.forEach(l => map.removeLayer(l));
+  parcelLayers = [];
+}
+
+function clearAll() {
+  clearLayers();
+  allFeatures = [];
+  currentIndex = -1;
+  closePanel();
+  document.getElementById('results-section').style.display = 'none';
+  document.getElementById('empty-state').style.display = 'flex';
+}
+
+// ==================== PARCEL SELECTION ====================
+function selectParcel(idx, zoomTo = false) {
+  if (idx < 0 || idx >= allFeatures.length) return;
+  currentIndex = idx;
+
+  const f = allFeatures[idx];
+  const p = f.properties || {};
+  const area = turf.area(f);
+  const centroid = turf.centroid(f);
+  const [lng, lat] = centroid.geometry.coordinates;
+
+  // Update styles
+  parcelLayers.forEach((layer, i) => {
+    layer.setStyle(i === idx 
+      ? { color: '#10b981', weight: 3, fillOpacity: 0.28, fillColor: '#10b981' }
+      : { color: '#60a5fa', weight: 1.5, fillOpacity: 0.08, fillColor: '#3b82f6' }
+    );
+  });
+
+  // Update result list highlight
+  document.querySelectorAll('.result-item').forEach(el => {
+    el.classList.toggle('selected', parseInt(el.dataset.i || -1) === idx);
+  });
+
+  // Fill panel
+  document.getElementById('panel-ref').textContent = `${p.section || '—'} ${p.numero || '—'}`;
+  document.getElementById('panel-commune').textContent = `${p.commune || '—'} · ${p.code_insee || '—'}`;
+  document.getElementById('panel-area').textContent = Math.round(area).toLocaleString('fr');
+  document.getElementById('panel-ha').textContent = (area/10000).toFixed(3) + ' ha';
+
+  document.getElementById('pi-insee').textContent = p.code_insee || '—';
+  document.getElementById('pi-section').textContent = p.section || '—';
+  document.getElementById('pi-numero').textContent = p.numero || '—';
+  document.getElementById('pi-feuille').textContent = p.feuille || '—';
+
+  document.getElementById('link-gmaps').href = `https://www.google.com/maps?q=${lat},${lng}&z=18`;
+  document.getElementById('link-osm').href = `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}&zoom=18`;
+
+  // Navigation
+  document.getElementById('nav-counter').textContent = `${idx+1} / ${allFeatures.length}`;
+  document.getElementById('nav-label').textContent = `Parcelle ${idx+1} sur ${allFeatures.length}`;
+  document.getElementById('btn-prev').disabled = idx === 0;
+  document.getElementById('btn-next').disabled = idx === allFeatures.length - 1;
+
+  // Open panel
+  document.getElementById('parcel-panel').classList.add('open');
+  setTimeout(() => map.invalidateSize(), 50);
+  setTimeout(() => map.invalidateSize(), 320);
+
+  if (zoomTo && parcelLayers[idx]) {
+    setTimeout(() => {
+      map.fitBounds(parcelLayers[idx].getBounds(), { padding: [60, 60], maxZoom: 19 });
+    }, 350);
+  }
+}
+
+function navParcel(dir) {
+  selectParcel(currentIndex + dir, true);
+}
+
+function closePanel() {
+  document.getElementById('parcel-panel').classList.remove('open');
+  parcelLayers.forEach(l => l.setStyle({ color: '#60a5fa', weight: 1.5, fillOpacity: 0.08, fillColor: '#3b82f6' }));
+  document.querySelectorAll('.result-item').forEach(el => el.classList.remove('selected'));
+  currentIndex = -1;
+  setTimeout(() => map.invalidateSize(), 320);
+}
+
+// ==================== EXPORT ====================
+function exportGeoJSON() {
+  if (currentIndex < 0) return;
+  const f = allFeatures[currentIndex];
+  const p = f.properties || {};
+  const blob = new Blob([JSON.stringify(f, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `parcelle_${p.section || 'X'}_${p.numero || '0'}.geojson`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('GeoJSON exporté avec succès', 'ok');
+}
+
+// ==================== UTILS ====================
+function showLoading() {
+  loadingEl.style.display = 'flex';
+}
+function hideLoading() {
+  loadingEl.style.display = 'none';
+}
+
+function showToast(msg, type = '') {
+  toastEl.textContent = msg;
+  toastEl.className = `toast ${type}`;
+  toastEl.classList.add('show');
+  setTimeout(() => toastEl.classList.remove('show'), 3000);
+}
+
+// ==================== INIT ====================
+window.addEventListener('load', () => {
+  // Initial map size fix
+  setTimeout(() => map.invalidateSize(), 300);
+});
+</script>
+</body>
+</html>
